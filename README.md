@@ -13,3 +13,5 @@ A gamified platform for studying via Quests (courses). You keep streaks, unlock 
   ✉️Contact
   > Contact us at studyquest21@gmail.com
 > or create an issue in this repository
+
+👾 For direct support, join our [Discord Server](https://discord.gg/Vhs8TPpDbK)
