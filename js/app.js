@@ -174,10 +174,24 @@ function showPage(name){
   // Scroll to top on page change
   window.scrollTo(0,0);
 }
+function countUp(el,target,prefix){
+  if(!el)return;
+  prefix=prefix||'';
+  const start=parseInt(el.dataset.cv||el.textContent.replace(/[^\d]/g,''),10)||0;
+  if(start===target){el.textContent=prefix+target.toLocaleString();return;}
+  const dur=500,t0=performance.now();
+  function step(t){
+    const p=Math.min(1,(t-t0)/dur),e=1-Math.pow(1-p,3);
+    const v=Math.round(start+(target-start)*e);
+    el.textContent=prefix+v.toLocaleString();
+    if(p<1)requestAnimationFrame(step);else el.dataset.cv=target;
+  }
+  requestAnimationFrame(step);
+}
 function updateHeaderStats(){
   const{lvl,pct}=xpProgressInLevel(UDATA.xp);
-  document.getElementById('hdr-xp').textContent=UDATA.xp.toLocaleString();
-  document.getElementById('hdr-streak').textContent=UDATA.streak;
+  countUp(document.getElementById('hdr-xp'),UDATA.xp);
+  countUp(document.getElementById('hdr-streak'),UDATA.streak);
   document.getElementById('hdr-lvl-lbl').textContent=`LVL ${lvl} · XP`;
   document.getElementById('hdr-xp-fill').style.width=pct+'%';
   const t=tierInfo(currentTier());
@@ -463,7 +477,8 @@ async function finishQuiz(){
   document.getElementById('rt').textContent=pct>=PERFECT_THRESHOLD?'Quest Node Conquered!':pct>=PASS_THRESHOLD?'A Hard-Fought Victory':'Defeated... For Now';
   document.getElementById('rs').textContent=pct>=PERFECT_THRESHOLD?(perfect?'Perfect run! ':'')+'You proved your mastery.':pct>=PASS_THRESHOLD?'You survived. Return to sharpen your blade.':'Every defeat is wisdom. Rise again, scholar.';
   document.getElementById('res-score').textContent=score+'/'+total;
-  document.getElementById('res-xp').textContent=isFirst?'+'+earned:'+0 (replay)';
+  if(isFirst){delete document.getElementById('res-xp').dataset.cv;document.getElementById('res-xp').textContent='+0';countUp(document.getElementById('res-xp'),earned,'+');}
+  else document.getElementById('res-xp').textContent='+0 (replay)';
   document.getElementById('retry-btn').onclick=function(){startQuiz(node);};
   const delta={xp:(UDATA.xp||0)+earned};
   if(pct>=PASS_THRESHOLD){
