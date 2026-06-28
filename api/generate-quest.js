@@ -31,12 +31,18 @@ Question type schemas:
 - fill: "answer" is the exact word/phrase, optional "hint"
 - match: "pairs" is an array of exactly 4 [term, definition] tuples
 
+Baseline quality bar — non-negotiable for every quest regardless of tier:
+- Every question must test genuine understanding of the material, never trivia or a throwaway fact.
+- Every "exp" explanation must clearly state WHY the answer is correct, in full sentences — never a single word, never "Correct!" with no substance.
+- MCQ distractors must be plausible, topically related misconceptions — never silly, off-topic, or obviously wrong by elimination.
+- No filler nodes. Every node must teach something distinct and meaningfully advance the learner's understanding of the material.
+- Titles, names, and descriptions must be specific to the actual content of the study material, never generic placeholders.
+
 Design rules:
 - Create ${cfg.nodeRange} nodes total. The LAST node MUST be {"type":"boss","quizType":"mixed","difficulty":"hard"} and synthesize the whole quest.
-- Each non-boss node: ${cfg.questionDepth}. Boss node: 5-6 questions mixing every question type used earlier.
+- Each non-boss node: ${cfg.questionDepth}. Boss node: 6-7 questions mixing every question type used earlier.
 - XP guide: easy 35-40, medium 50-60, hard 70-80, boss 120-150.
 - Every question MUST be derived directly from the study material — never invent facts not present or implied by it.
-- Distractors (wrong MCQ options) must be plausible and topically related, never silly or obviously wrong.
 - Order nodes so difficulty escalates logically, building on earlier concepts.
 - Node names should be dramatic and thematic but the "desc" and "exp" fields must be clear, accurate, and educational.
 - ${cfg.qualityNote}
@@ -118,6 +124,7 @@ module.exports = async function handler(req, res) {
     }
     const quest = parseQuestJSON(rawText);
     quest.id = 'q_' + Date.now();
+    quest.nodes.forEach((n, i) => { n.id = quest.id + '_n' + (i + 1); });
     quest.tier = tier;
     quest.xpTotal = quest.nodes.reduce((s, n) => s + (n.xp || 0), 0);
     res.status(200).json({ quest });
