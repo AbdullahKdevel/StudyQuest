@@ -1,3 +1,13 @@
+// ══ CONSTANTS ══
+const MAX_HEARTS=3;
+const PASS_THRESHOLD=0.6;
+const PERFECT_THRESHOLD=0.8;
+const MAX_NAME_LEN=40,MAX_QUEST_NAME_LEN=60,MAX_TAG_LEN=24;
+function escapeHtml(s){
+  return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function renderHeartsStr(n){return'❤️'.repeat(n)+'🖤'.repeat(MAX_HEARTS-n);}
+
 // ══ XP SYSTEM ══
 function xpForLevel(lvl){if(lvl<=1)return 0;let t=0,b=200;for(let i=2;i<=lvl;i++){t+=Math.round(b);b*=1.5;}return t;}
 function getLevelFromXP(xp){let l=1;while(xpForLevel(l+1)<=xp)l++;return l;}
@@ -50,7 +60,7 @@ function renderAchievements(){
 
 // ══ AUTH ══
 let USER=null;
-let UDATA={xp:0,streak:0,bestStreak:0,lastActivityDate:null,completedNodes:{},achievements:[],totalNodes:0,perfectNodes:0,bossesDefeated:0,questsCompleted:0};
+let UDATA={xp:0,streak:0,bestStreak:0,lastActivityDate:null,completedNodes:{},achievements:[],totalNodes:0,perfectNodes:0,bossesDefeated:0,questsCompleted:0,tier:'free'};
 function waitForFB(){return new Promise(r=>{if(window._fbReady){r();return;}window.addEventListener('fbready',r,{once:true});});}
 async function initAuth(){
   await waitForFB();
@@ -90,26 +100,28 @@ function friendlyAuthError(code){
 function todayStr(){return new Date().toISOString().split('T')[0];}
 async function initUserData(user){
   const{db,doc,setDoc,serverTimestamp}=window._fb;
-  const fresh={displayName:user.displayName||'Scholar',xp:0,streak:0,bestStreak:0,lastActivityDate:todayStr(),completedNodes:{},achievements:[],totalNodes:0,perfectNodes:0,bossesDefeated:0,questsCompleted:0,createdAt:serverTimestamp()};
+  const fresh={displayName:user.displayName||'Scholar',xp:0,streak:0,bestStreak:0,lastActivityDate:todayStr(),completedNodes:{},achievements:[],totalNodes:0,perfectNodes:0,bossesDefeated:0,questsCompleted:0,tier:'free',createdAt:serverTimestamp()};
   await setDoc(doc(db,'users',user.uid),fresh);Object.assign(UDATA,fresh);
 }
 async function loadUserData(){
   const{db,doc,getDoc}=window._fb;
   const snap=await getDoc(doc(db,'users',USER.uid));
-  if(snap.exists()){UDATA={xp:0,streak:0,bestStreak:0,lastActivityDate:null,completedNodes:{},achievements:[],totalNodes:0,perfectNodes:0,bossesDefeated:0,questsCompleted:0,...snap.data()};checkDailyStreak();}
+  if(snap.exists()){UDATA={xp:0,streak:0,bestStreak:0,lastActivityDate:null,completedNodes:{},achievements:[],totalNodes:0,perfectNodes:0,bossesDefeated:0,questsCompleted:0,tier:'free',...snap.data()};checkDailyStreak();}
   else await initUserData(USER);
 }
 async function saveUserData(delta={}){
   const{db,doc,updateDoc}=window._fb;
   Object.assign(UDATA,delta);
-  try{await updateDoc(doc(db,'users',USER.uid),UDATA);}catch(e){console.error('Firestore save error:',e);}
+  try{await updateDoc(doc(db,'users',USER.uid),UDATA);}catch(e){console.error('Firestore save error:',e);showToast('⚠️ Could not sync progress to the cloud — it is only saved on this device for now.',6000);}
 }
 function normDate(val){if(!val||val==='null')return null;if(typeof val.toDate==='function')return val.toDate().toISOString().split('T')[0];return String(val).substring(0,10);}
 function checkDailyStreak(){
   const today=todayStr(),last=normDate(UDATA.lastActivityDate);
   if(!last||last===today)return;
   const diff=Math.round((new Date(today)-new Date(last))/86400000);
-  if(diff>=1){UDATA.streak=0;saveUserData({streak:0});}
+  // Only break the streak once a full day has been missed (diff===1 just means
+  // "yesterday", which is still salvageable by completing a node today).
+  if(diff>=2){UDATA.streak=0;saveUserData({streak:0});}
 }
 
 // ══ QUESTS ══
@@ -129,7 +141,7 @@ async function loadQuests(){
 async function saveQuestToFirestore(quest){
   const{db,doc,setDoc}=window._fb;
   const all=_lsLoad().filter(q=>q.id!==quest.id);all.push(quest);_lsSave(all);
-  try{await setDoc(doc(db,'quests',USER.uid,'items',quest.id),quest);}catch(e){console.warn('Firestore save skipped:',e.message);}
+  try{await setDoc(doc(db,'quests',USER.uid,'items',quest.id),quest);}catch(e){console.warn('Firestore save skipped:',e.message);showToast('⚠️ Quest saved on this device only — cloud sync failed.',6000);}
 }
 async function deleteQuestFromFirestore(questId){
   const{db,doc,deleteDoc}=window._fb;
@@ -157,6 +169,7 @@ function showPage(name){
   if(name==='levels')renderLevelTree();
   if(name==='leaderboard')loadLeaderboard();
   if(name==='upload')resetUploadPage();
+  if(name==='upgrade')renderUpgradePage();
   closeDropdown();
   // Scroll to top on page change
   window.scrollTo(0,0);
@@ -167,6 +180,9 @@ function updateHeaderStats(){
   document.getElementById('hdr-streak').textContent=UDATA.streak;
   document.getElementById('hdr-lvl-lbl').textContent=`LVL ${lvl} · XP`;
   document.getElementById('hdr-xp-fill').style.width=pct+'%';
+  const t=tierInfo(currentTier());
+  document.getElementById('hdr-tier-badge').textContent=t.badge;
+  document.getElementById('hdr-tier-name').textContent=t.name;
 }
 function toggleDropdown(){const d=document.getElementById('dropdown');d.style.display=d.style.display==='none'?'block':'none';}
 function closeDropdown(){const d=document.getElementById('dropdown');if(d)d.style.display='none';}
@@ -186,6 +202,8 @@ function showToast(msg,dur=4000){
   const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
   clearTimeout(_toastTimer);_toastTimer=setTimeout(()=>t.classList.remove('show'),dur);
 }
+function debounce(fn,ms){let t;return function(...a){clearTimeout(t);t=setTimeout(()=>fn.apply(this,a),ms);};}
+const debouncedRenderHome=debounce(()=>renderHome(),180);
 function shuffle(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function levenshtein(a,b){
   const m=a.length,n=b.length;
@@ -237,11 +255,11 @@ function renderQuestGrid(gridId,items,status){
     if(status==='available')actions=`<button class="btn-sm btn-start" onclick="openPath('${q.id}')">Start Quest ⚔️</button>`;
     else if(status==='active')actions=`<button class="btn-sm btn-continue" onclick="openPath('${q.id}')">Continue →</button>`;
     else actions=`<button class="btn-sm btn-continue" onclick="openPath('${q.id}')">View Path</button><button class="btn-sm btn-restart" onclick="restartQuest('${q.id}')">↺ Restart</button>`;
-    const tagsHtml=(q.tags||[]).map(t=>`<span class="tag-pill">${t}</span>`).join('');
+    const tagsHtml=(q.tags||[]).map(t=>`<span class="tag-pill">${escapeHtml(t)}</span>`).join('');
     card.innerHTML=`
-      <div class="qc-top"><span class="qc-emoji">${q.emoji||'📚'}</span><span class="qc-badge ${bc}">${bt}</span></div>
-      <div class="qc-title">${q.title}</div>
-      <div class="qc-sub">${q.subtitle||''}</div>
+      <div class="qc-top"><span class="qc-emoji">${escapeHtml(q.emoji||'📚')}</span><span class="qc-badge ${bc}">${bt}</span></div>
+      <div class="qc-title">${escapeHtml(q.title)}</div>
+      <div class="qc-sub">${escapeHtml(q.subtitle||'')}</div>
       ${tagsHtml?`<div class="quest-tags">${tagsHtml}</div>`:''}
       <div class="qc-meta"><span>📖 ${total} nodes</span><span>⭐ ${q.xpTotal||0} XP</span><span>✓ ${completed}/${total}</span></div>
       <div class="prog-wrap"><div class="prog-lbl"><span>Progress</span><span>${pct}%</span></div><div class="prog-bar"><div class="prog-fill ${fc}" style="width:${pct}%"></div></div></div>
@@ -284,7 +302,7 @@ function renderPath(q){
     const cc=done?'done':active?'active':'locked-c';
     const bc=node.type==='boss'?' boss':'';
     const icon=node.type==='boss'?'💀':done?'✓':active?(QT_ICONS[node.quizType]||'📜'):'🔒';
-    nodeEl.innerHTML=`<div class="node-circle ${cc}${bc}">${icon}${done?'<div class="node-badge">✓</div>':''}</div><div class="node-info"><div class="node-type">${node.type} · ${node.quizType} · ${node.difficulty}</div><div class="node-name">${node.name}</div><div class="node-desc">${node.desc}</div><div class="node-xp">+${node.xp} XP · ${node.questions.length} challenges</div></div>`;
+    nodeEl.innerHTML=`<div class="node-circle ${cc}${bc}">${icon}${done?'<div class="node-badge">✓</div>':''}</div><div class="node-info"><div class="node-type">${escapeHtml(node.type)} · ${escapeHtml(node.quizType)} · ${escapeHtml(node.difficulty)}</div><div class="node-name">${escapeHtml(node.name)}</div><div class="node-desc">${escapeHtml(node.desc)}</div><div class="node-xp">+${node.xp} XP · ${node.questions.length} challenges</div></div>`;
     if(!locked)nodeEl.onclick=()=>openNodeModal(node);
     container.appendChild(nodeEl);
   });
@@ -311,13 +329,13 @@ async function confirmDeleteQuest(){
 }
 
 // ══ QUIZ ══
-const QUIZ={node:null,questions:[],qIdx:0,hearts:3,score:0};
-function startQuiz(node){QUIZ.node=node;QUIZ.questions=shuffle([...node.questions]);QUIZ.qIdx=0;QUIZ.hearts=3;QUIZ.score=0;renderQ();showPage('quiz');}
+const QUIZ={node:null,questions:[],qIdx:0,hearts:MAX_HEARTS,score:0};
+function startQuiz(node){QUIZ.node=node;QUIZ.questions=shuffle([...node.questions]);QUIZ.qIdx=0;QUIZ.hearts=MAX_HEARTS;QUIZ.score=0;renderQ();showPage('quiz');}
 function renderQ(){
   const q=QUIZ.questions[QUIZ.qIdx],total=QUIZ.questions.length,pct=(QUIZ.qIdx/total)*100;
   document.getElementById('qpf').style.width=pct+'%';
   document.getElementById('qcounter').textContent=`${QUIZ.qIdx+1} / ${total}`;
-  document.getElementById('hearts').textContent='❤️'.repeat(QUIZ.hearts)+'🖤'.repeat(3-QUIZ.hearts);
+  document.getElementById('hearts').textContent=renderHeartsStr(QUIZ.hearts);
   document.getElementById('next-btn').style.display='none';
   const fb=document.getElementById('feedback');fb.className='feedback';fb.textContent='';
   const card=document.getElementById('quiz-card');card.innerHTML='';card.style.animation='';
@@ -424,7 +442,7 @@ function renderMatch(card,q){
 }
 function loseHeart(){
   QUIZ.hearts=Math.max(0,QUIZ.hearts-1);
-  document.getElementById('hearts').textContent='❤️'.repeat(QUIZ.hearts)+'🖤'.repeat(3-QUIZ.hearts);
+  document.getElementById('hearts').textContent=renderHeartsStr(QUIZ.hearts);
   const card=document.getElementById('quiz-card');card.style.animation='none';card.offsetHeight;card.style.animation='shake .3s';
 }
 function showFeedback(ok,msg){
@@ -436,18 +454,19 @@ function exitToPath(){const q=window._currentQuestId;if(q)openPath(q);else showP
 
 async function finishQuiz(){
   const{node,questions,score,hearts}=QUIZ;
-  const total=questions.length,pct=total>0?score/total:0,perfect=hearts===3;
+  const total=questions.length,pct=total>0?score/total:0,perfect=hearts===MAX_HEARTS;
   const isFirst=!UDATA.completedNodes[node.id];
+  const oldLvl=getLevelFromXP(UDATA.xp||0);
   let earned=0;
-  if(isFirst&&pct>=0.6){earned=Math.round(node.xp*pct);if(perfect)earned=Math.round(earned*1.2);}
-  document.getElementById('ri').textContent=pct>=0.8?'🏆':pct>=0.5?'⚔️':'💀';
-  document.getElementById('rt').textContent=pct>=0.8?'Quest Node Conquered!':pct>=0.5?'A Hard-Fought Battle':'Defeated... For Now';
-  document.getElementById('rs').textContent=pct>=0.8?(perfect?'Perfect run! ':'')+'You proved your mastery.':pct>=0.5?'You survived. Return to sharpen your blade.':'Every defeat is wisdom. Rise again, scholar.';
+  if(isFirst&&pct>=PASS_THRESHOLD){earned=Math.round(node.xp*pct);if(perfect)earned=Math.round(earned*1.2);}
+  document.getElementById('ri').textContent=pct>=PERFECT_THRESHOLD?'🏆':pct>=PASS_THRESHOLD?'⚔️':'💀';
+  document.getElementById('rt').textContent=pct>=PERFECT_THRESHOLD?'Quest Node Conquered!':pct>=PASS_THRESHOLD?'A Hard-Fought Victory':'Defeated... For Now';
+  document.getElementById('rs').textContent=pct>=PERFECT_THRESHOLD?(perfect?'Perfect run! ':'')+'You proved your mastery.':pct>=PASS_THRESHOLD?'You survived. Return to sharpen your blade.':'Every defeat is wisdom. Rise again, scholar.';
   document.getElementById('res-score').textContent=score+'/'+total;
   document.getElementById('res-xp').textContent=isFirst?'+'+earned:'+0 (replay)';
   document.getElementById('retry-btn').onclick=function(){startQuiz(node);};
   const delta={xp:(UDATA.xp||0)+earned};
-  if(pct>=0.6){
+  if(pct>=PASS_THRESHOLD){
     var cn=Object.assign({},UDATA.completedNodes||{});var isNew=!cn[node.id];cn[node.id]=true;delta.completedNodes=cn;
     if(isNew&&isFirst){
       delta.totalNodes=(UDATA.totalNodes||0)+1;
@@ -459,14 +478,15 @@ async function finishQuiz(){
     var today=todayStr(),lastStr=normDate(UDATA.lastActivityDate);
     if(lastStr!==today){var ns=(UDATA.streak||0)+1;delta.streak=ns;delta.bestStreak=Math.max(UDATA.bestStreak||0,ns);delta.lastActivityDate=today;}
   }
-  await saveUserData(delta);updateHeaderStats();
+  await saveUserData(delta);
+  if(isFirst){var na=checkAchievements();if(na.length){na.forEach(function(a,i){setTimeout(function(){showToast('Achievement: '+a.name+'! +'+a.xp+' XP');},1200+i*2000);});}}
+  updateHeaderStats();
   var li=xpProgressInLevel(UDATA.xp);
   document.getElementById('res-streak').textContent='🔥 '+UDATA.streak;
   document.getElementById('res-lvl-lbl').textContent='Level '+li.lvl+' Progress';
   document.getElementById('res-pct').textContent=li.pct+'%';
   document.getElementById('res-xp-fill').style.width=li.pct+'%';
-  var oldLvl=getLevelFromXP(UDATA.xp-earned);if(li.lvl>oldLvl)showLevelUp(li.lvl);
-  if(isFirst){var na=checkAchievements();if(na.length){na.forEach(function(a,i){setTimeout(function(){showToast('Achievement: '+a.name+'! +'+a.xp+' XP');},1200+i*2000);});updateHeaderStats();}}
+  if(li.lvl>oldLvl)showLevelUp(li.lvl);
   showPage('result');
 }
 
@@ -519,9 +539,16 @@ function renderAvatarPreview(){
   const url=_pendingAvatarDataURL||UDATA.avatarUrl||null;
   wrap.innerHTML=url?`<img src="${url}" alt="avatar" style="width:100%;height:100%;object-fit:cover">`:'<span>👤</span>';
 }
-function handleAvatarUpload(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{_pendingAvatarDataURL=ev.target.result;renderAvatarPreview();};r.readAsDataURL(f);}
+const ALLOWED_AVATAR_TYPES=['image/png','image/jpeg','image/webp','image/gif'];
+const MAX_AVATAR_BYTES=1.5*1024*1024;
+function handleAvatarUpload(e){
+  const f=e.target.files[0];if(!f)return;
+  if(!ALLOWED_AVATAR_TYPES.includes(f.type)){showToast('⚠️ Please choose a PNG, JPG, GIF or WEBP image.');e.target.value='';return;}
+  if(f.size>MAX_AVATAR_BYTES){showToast('⚠️ Image too large — please choose one under 1.5MB.');e.target.value='';return;}
+  const r=new FileReader();r.onload=ev=>{_pendingAvatarDataURL=ev.target.result;renderAvatarPreview();};r.readAsDataURL(f);
+}
 async function saveProfile(){
-  const{updateProfile}=window._fb;const name=document.getElementById('profile-name-input').value.trim();const err=document.getElementById('profile-err');
+  const{updateProfile}=window._fb;const name=document.getElementById('profile-name-input').value.trim().slice(0,MAX_NAME_LEN);const err=document.getElementById('profile-err');
   if(!name){err.textContent='Name cannot be empty.';return;}err.textContent='Saving...';
   try{
     await updateProfile(USER,{displayName:name});
@@ -560,7 +587,7 @@ async function loadLeaderboard(){
   try{
     const{collection,getDocs,orderBy,query,limit}=window._fb;let snap;
     try{const q=query(collection(db,'users'),orderBy('xp','desc'),limit(50));snap=await getDocs(q);}
-    catch{snap=await getDocs(collection(db,'users'));}
+    catch{snap=await getDocs(query(collection(db,'users'),limit(50)));}
     const users=[];snap.forEach(d=>{const x=d.data();users.push({uid:d.id,name:x.displayName||'Anonymous Scholar',xp:x.xp||0,avatarUrl:x.avatarUrl||null});});
     users.sort((a,b)=>b.xp-a.xp);
     if(!users.length){c.innerHTML='<div class="lb-loading">No scholars yet — be the first!</div>';return;}
@@ -569,14 +596,14 @@ async function loadLeaderboard(){
       const rank=i+1,isMe=u.uid===USER?.uid,lvl=getLevelFromXP(u.xp),medal=rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':rank;
       const tc=rank===1?' top1':rank===2?' top2':rank===3?' top3':'';
       const row=document.createElement('div');row.className='lb-row'+tc+(isMe?' me':'');
-      row.innerHTML=`<div class="lb-rank">${medal}</div><div class="lb-avatar">${u.avatarUrl?`<img src="${u.avatarUrl}" alt="">`:' 👤'}</div><div style="flex:1;min-width:0"><div class="lb-name">${u.name}</div><div class="lb-lvl">Lv.${lvl} ${levelTitle(lvl)}</div></div><div><div class="lb-xp">${u.xp.toLocaleString()}</div><div class="lb-lvl" style="text-align:right">XP</div></div>`;
+      const avatarHtml=u.avatarUrl&&/^data:image\/(png|jpe?g|gif|webp);base64,/.test(u.avatarUrl)?`<img src="${escapeHtml(u.avatarUrl)}" alt="">`:' 👤';
+      row.innerHTML=`<div class="lb-rank">${medal}</div><div class="lb-avatar">${avatarHtml}</div><div style="flex:1;min-width:0"><div class="lb-name">${escapeHtml(u.name)}</div><div class="lb-lvl">Lv.${lvl} ${escapeHtml(levelTitle(lvl))}</div></div><div><div class="lb-xp">${u.xp.toLocaleString()}</div><div class="lb-lvl" style="text-align:right">XP</div></div>`;
       c.appendChild(row);
     });
   }catch(e){c.innerHTML='<div class="lb-loading">Could not load leaderboard.</div>';}
 }
 
-// ══ PDF UPLOAD & OPENROUTER ══
-const OR_KEY='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';
+// ══ PDF UPLOAD & AI QUEST GENERATION ══
 let _pendingQuest=null,_pendingTags=[];
 function resetUploadPage(){
   document.getElementById('upload-step-1').style.display='';
@@ -629,107 +656,52 @@ async function extractTextFromPDF(file,status){
   const arrayBuffer=await file.arrayBuffer();
   const pdf=await window.pdfjsLib.getDocument({data:arrayBuffer}).promise;
   let fullText='';
-  const maxPages=Math.min(pdf.numPages,40);
+  const tier=tierInfo(currentTier());
+  const maxPages=Math.min(pdf.numPages,tier.pdfPages);
+  if(pdf.numPages>tier.pdfPages){
+    showToast(`📜 Your ${tier.name} plan reads up to ${tier.pdfPages} pages — the rest of this PDF will be skipped.`,6000);
+  }
   for(let i=1;i<=maxPages;i++){
     status.textContent=`Reading page ${i} of ${maxPages}...`;
     const page=await pdf.getPage(i);
     const content=await page.getTextContent();
     fullText+=content.items.map(x=>x.str).join(' ')+'\n';
   }
-  return fullText.slice(0,12000);
+  return fullText.slice(0,tier.pdfPages*800);
 }
 
 async function generateQuestFromText(pdfText,status){
-  const prompt=`You are a quest designer for a gamified learning app called StudyQuest. Analyse this study material and generate a complete quest in JSON format.
-
-The quest must follow this EXACT structure:
-{
-  "title": "Epic quest title (dramatic, Cinzel-style)",
-  "subtitle": "Subject · Topic description",
-  "emoji": "relevant emoji",
-  "tags": ["Subject", "Grade/Level"],
-  "nodes": [
-    {
-      "id": "n_1",
-      "type": "lesson",
-      "name": "Dramatic node name",
-      "desc": "Brief description",
-      "xp": 40,
-      "quizType": "mcq",
-      "difficulty": "easy",
-      "questions": [
-        {"type":"mcq","q":"Question?","options":["A","B","C","D"],"answer":0,"exp":"Explanation"}
-      ]
-    }
-  ]
-}
-
-Question types:
-- mcq: options array (4 items), answer is index 0-3, exp field
-- truefalse: answer is boolean true/false, exp field
-- fill: answer is the word/phrase, optional hint field
-- match: pairs array of [term, definition] (4 pairs)
-
-Rules:
-- Create 6-8 nodes. Last node MUST be type "boss", quizType "mixed", difficulty "hard"
-- Boss: 5-6 questions mixing all types. Regular nodes: 4-5 questions each
-- XP: easy=35-40, medium=50-60, hard=70-80, boss=120-150
-- Base ALL questions on the actual study material content below
-- Node names must be dramatic and thematic
-- IDs must be unique: "n_1", "n_2" etc.
-
-Return ONLY valid JSON. No markdown fences, no explanation.
-
-STUDY MATERIAL:
-${pdfText}`;
-
-  const FREE_MODELS=['openrouter/free','deepseek/deepseek-r1:free','meta-llama/llama-3.3-70b-instruct:free','google/gemma-3-12b-it:free'];
-  let text='';
-  for(let mi=0;mi<FREE_MODELS.length;mi++){
-    const model=FREE_MODELS[mi];
-    status.textContent=`Consulting oracle (${model.split('/')[1].split(':')[0]})...`;
-    const resp=await fetch('https://openrouter.ai/api/v1/chat/completions',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+OR_KEY,'HTTP-Referer':'https://studyquest.app','X-Title':'StudyQuest'},
-      body:JSON.stringify({model,messages:[{role:'user',content:prompt}],max_tokens:8000,temperature:0.7})
-    });
-    if(resp.status===429||resp.status===503){if(mi===FREE_MODELS.length-1)throw new Error('All free models are rate limited. Please try again in a minute.');continue;}
-    if(!resp.ok){
-      let msg=`OpenRouter error (${resp.status})`;
-      try{const e=await resp.json();if(e?.error?.message)msg+=': '+e.error.message;}catch(_){}
-      if(mi===FREE_MODELS.length-1)throw new Error(msg);continue;
-    }
-    const data=await resp.json();
-    text=data.choices?.[0]?.message?.content||'';if(text)break;
-  }
-  if(!text)throw new Error('No response from AI. Please try again.');
-  let jsonStr=text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
-  if(!jsonStr.startsWith('{')){const m=jsonStr.match(/\{[\s\S]*\}/);if(!m)throw new Error('Could not find JSON in response.');jsonStr=m[0];}
-  let quest;
-  try{quest=JSON.parse(jsonStr);}catch(_){throw new Error('Could not parse AI response. Try again.');}
-  if(!quest.nodes?.length)throw new Error('No quest nodes returned. Try a more text-rich PDF.');
-  quest.id='q_'+Date.now();quest.xpTotal=quest.nodes.reduce((s,n)=>s+(n.xp||0),0);
-  return quest;
+  status.textContent='Consulting the Claude oracle...';
+  const resp=await fetch('/api/generate-quest',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({text:pdfText,tier:currentTier()})
+  });
+  let data;
+  try{data=await resp.json();}catch(_){throw new Error('Unexpected response from the server.');}
+  if(!resp.ok)throw new Error(data?.error||`Quest generation failed (${resp.status})`);
+  if(!data.quest?.nodes?.length)throw new Error('No quest nodes returned. Try a more text-rich PDF.');
+  return data.quest;
 }
 
 function renderTagsDisplay(){
   const c=document.getElementById('tags-display');c.innerHTML='';
   _pendingTags.forEach((tag,i)=>{
     const pill=document.createElement('span');pill.className='tag-pill';pill.style.cursor='pointer';
-    pill.innerHTML=`${tag} <span class="tag-remove" onclick="removeTag(${i})">✕</span>`;
+    pill.innerHTML=`${escapeHtml(tag)} <span class="tag-remove" onclick="removeTag(${i})">✕</span>`;
     c.appendChild(pill);
   });
 }
 function removeTag(i){_pendingTags.splice(i,1);renderTagsDisplay();}
 function handleTagInput(e){if(e.key==='Enter'){e.preventDefault();addTag();}}
 function addTag(){
-  const inp=document.getElementById('tag-input');const val=inp.value.trim();
-  if(val&&!_pendingTags.includes(val)){_pendingTags.push(val);renderTagsDisplay();}
+  const inp=document.getElementById('tag-input');const val=inp.value.trim().slice(0,MAX_TAG_LEN);
+  if(val&&!_pendingTags.includes(val)&&_pendingTags.length<8){_pendingTags.push(val);renderTagsDisplay();}
   inp.value='';
 }
 async function saveQuest(){
-  const name=document.getElementById('quest-name-input').value.trim();
-  const emoji=document.getElementById('quest-emoji-input').value.trim()||'📚';
+  const name=document.getElementById('quest-name-input').value.trim().slice(0,MAX_QUEST_NAME_LEN);
+  const emoji=document.getElementById('quest-emoji-input').value.trim().slice(0,4)||'📚';
   const err=document.getElementById('naming-err');
   if(!name){err.textContent='Please name your quest.';return;}
   if(!_pendingQuest){err.textContent='No quest data found. Please re-upload.';return;}
@@ -739,6 +711,86 @@ async function saveQuest(){
     await saveQuestToFirestore(_pendingQuest);QUESTS.push(_pendingQuest);
     showPage('home');showToast(`⚔️ "${name}" added to your sanctum!`);
   }catch(e){err.textContent='Failed to save. Try again.';}
+}
+
+// ══ UPGRADE PAGE ══
+function renderUpgradePage(){
+  const grid=document.getElementById('tier-grid');if(!grid)return;
+  const myTier=currentTier();
+  grid.innerHTML='';
+  TIER_ORDER.forEach((id,i)=>{
+    const t=TIERS[id];
+    const isMine=id===myTier;
+    const card=document.createElement('div');
+    card.className='tier-card'+(isMine?' is-current':'')+(id==='ascendant'?' is-top':'');
+    card.style.animationDelay=(i*0.08)+'s';
+    const featuresHtml=t.features.map(f=>`<div class="tier-feat${f.locked?' is-locked':''}"><span>${f.icon}</span>${escapeHtml(f.text)}</div>`).join('');
+    const btnHtml=isMine
+      ?`<button class="btn-primary" style="width:100%;text-align:center" disabled>Current Plan</button>`
+      :`<button class="btn-ghost" style="width:100%;text-align:center" disabled title="Purchasing isn't open yet">🔒 Coming Soon</button>`;
+    card.innerHTML=`
+      <div class="tier-badge-big">${t.badge}</div>
+      <div class="tier-name">${escapeHtml(t.name)}</div>
+      <div class="tier-tagline">${escapeHtml(t.tagline)}</div>
+      <div class="tier-price"><span class="amount">${escapeHtml(t.price)}</span><span class="period">${escapeHtml(t.period)}</span></div>
+      <div class="tier-feats">${featuresHtml}</div>
+      ${btnHtml}`;
+    grid.appendChild(card);
+  });
+  const bento=document.getElementById('bento-grid');if(!bento)return;
+  const cells=[
+    {size:'lg',icon:'🧠',title:'Claude-Powered Quest Forging',body:'Every quest is now generated by Claude — Free uses a fast, efficient model, while Vanguard and Ascendant unlock progressively more capable models for deeper, richer quests.'},
+    {size:'sm',icon:'📜',title:'Longer Source Material',body:'Higher tiers read more pages per PDF, so bigger textbooks and lecture packs can become a single quest.'},
+    {size:'sm',icon:'⚔️',title:'Richer Quest Paths',body:'More nodes, more questions, and more nuanced explanations as you ascend tiers.'},
+    {size:'sm',icon:'📊',title:'Mastery Insights',body:'A deeper analytics view of your strengths, weak topics, and study trends.',locked:true},
+    {size:'sm',icon:'🚀',title:'Priority Queue',body:'Skip the line — your quest generations are processed first.',locked:true},
+    {size:'md',icon:'🖼️',title:'Exclusive Profile Frames',body:'Animated avatar borders only Ascendant scholars can equip.',locked:true},
+    {size:'md',icon:'🎯',title:'Adaptive Difficulty',body:'Quests that quietly tune question difficulty to your performance, available only on Ascendant.',locked:true},
+  ];
+  bento.innerHTML=cells.map((c,i)=>`
+    <div class="bento-cell bento-${c.size}${c.locked?' is-locked':''}" style="animation-delay:${i*0.05}s">
+      <span class="bento-icon">${c.icon}</span>
+      <div class="bento-title">${escapeHtml(c.title)}${c.locked?' <span class="bento-lock">🔒</span>':''}</div>
+      <div class="bento-body">${escapeHtml(c.body)}</div>
+    </div>`).join('');
+}
+
+// ══ CHAT WIDGET ══
+let _chatHistory=[],_chatOpen=false,_chatLoading=false;
+function toggleChat(){
+  _chatOpen=!_chatOpen;
+  document.getElementById('chat-widget').classList.toggle('open',_chatOpen);
+  if(_chatOpen&&!_chatHistory.length){
+    appendChatMessage('assistant',"Greetings, scholar! I'm the StudyQuest Assistant. Ask me anything about quests, XP, streaks, achievements, or your plan.");
+  }
+  if(_chatOpen)setTimeout(()=>document.getElementById('chat-input')?.focus(),250);
+}
+function appendChatMessage(role,text){
+  const c=document.getElementById('chat-messages');if(!c)return;
+  const el=document.createElement('div');el.className='chat-msg '+role;el.textContent=text;
+  c.appendChild(el);c.scrollTop=c.scrollHeight;
+  return el;
+}
+async function sendChatMessage(){
+  if(_chatLoading)return;
+  const inp=document.getElementById('chat-input');
+  const text=inp.value.trim().slice(0,500);
+  if(!text)return;
+  inp.value='';appendChatMessage('user',text);
+  _chatHistory.push({role:'user',content:text});
+  _chatLoading=true;
+  const typingEl=appendChatMessage('assistant typing','···');
+  try{
+    const resp=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({messages:_chatHistory})});
+    const data=await resp.json().catch(()=>({}));
+    typingEl.remove();
+    if(!resp.ok)throw new Error(data?.error||'Something went wrong.');
+    appendChatMessage('assistant',data.reply);
+    _chatHistory.push({role:'assistant',content:data.reply});
+  }catch(e){
+    typingEl.remove();
+    appendChatMessage('assistant',"⚠️ I couldn't reach the oracle. Please try again in a moment.");
+  }finally{_chatLoading=false;}
 }
 
 document.addEventListener('DOMContentLoaded',()=>{initAuth();});
