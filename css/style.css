@@ -544,6 +544,120 @@ main{
 .empty-state p{color:var(--textdim);font-style:italic;margin-bottom:18px;font-size:14px}
 
 /* ══════════════════════════════════════════
+   TIER BADGE (header)
+══════════════════════════════════════════ */
+.tier-pill{cursor:pointer;border-color:var(--parch2)}
+.tier-pill:active{transform:scale(.95)}
+.dropdown-item.upgrade-item{color:var(--gold2)}
+
+/* ══════════════════════════════════════════
+   UPGRADE PAGE — TIER CARDS
+══════════════════════════════════════════ */
+.tier-grid{display:grid;grid-template-columns:1fr;gap:16px}
+.tier-card{
+  background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);
+  padding:24px 20px;text-align:center;position:relative;overflow:hidden;
+  animation:popIn .45s cubic-bezier(.16,1,.3,1) both;
+  transition:transform .25s cubic-bezier(.16,1,.3,1),box-shadow .25s ease,border-color .25s ease;
+}
+.tier-card:hover{transform:translateY(-4px);box-shadow:0 16px 40px rgba(0,0,0,.35)}
+.tier-card.is-current{border-color:var(--gold)77;background:linear-gradient(160deg,#e8b84b0c,var(--bg2))}
+.tier-card.is-top{border-color:var(--mana)77}
+.tier-card.is-top::before{
+  content:'';position:absolute;top:-60px;right:-60px;width:160px;height:160px;
+  background:radial-gradient(circle,#7a8fd822,transparent 70%);pointer-events:none;
+}
+.tier-badge-big{font-size:36px;margin-bottom:8px;display:block;filter:drop-shadow(0 0 14px currentColor)}
+.tier-name{font-family:'Cinzel',serif;font-size:19px;color:var(--gold);font-weight:700}
+.tier-tagline{font-size:13px;color:var(--textdim);font-style:italic;margin:4px 0 14px}
+.tier-price{margin-bottom:16px}
+.tier-price .amount{font-family:'Cinzel',serif;font-size:30px;color:var(--text);font-weight:900}
+.tier-price .period{font-size:12px;color:var(--textdim);margin-left:4px}
+.tier-feats{display:flex;flex-direction:column;gap:9px;text-align:left;margin-bottom:18px}
+.tier-feat{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--text)}
+.tier-feat span{flex-shrink:0;font-size:15px}
+.tier-feat.is-locked{color:var(--textdim)}
+.tier-card.is-current .btn-primary{cursor:default}
+
+/* ══════════════════════════════════════════
+   UPGRADE PAGE — BENTO GRID
+══════════════════════════════════════════ */
+.bento-grid{
+  display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px;
+}
+.bento-cell{
+  background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);
+  padding:18px;position:relative;overflow:hidden;
+  animation:fadeUp .5s cubic-bezier(.16,1,.3,1) both;
+  transition:transform .25s cubic-bezier(.16,1,.3,1),border-color .25s ease;
+}
+.bento-cell:hover{transform:translateY(-3px) scale(1.01);border-color:var(--parch2)}
+.bento-cell.is-locked{background:linear-gradient(160deg,#7a8fd808,var(--bg2))}
+.bento-icon{font-size:24px;display:block;margin-bottom:8px}
+.bento-title{font-family:'Cinzel',serif;font-size:14px;color:var(--parch);margin-bottom:6px}
+.bento-lock{font-size:11px;opacity:.7}
+.bento-body{font-size:12.5px;color:var(--textdim);line-height:1.5}
+.bento-lg{grid-column:span 2}
+.bento-md{grid-column:span 2}
+
+/* ══════════════════════════════════════════
+   CHAT WIDGET
+══════════════════════════════════════════ */
+#chat-widget{position:fixed;bottom:calc(var(--nav-h) + var(--safe-bottom) + 16px);right:16px;z-index:600}
+#chat-fab{
+  width:56px;height:56px;border-radius:50%;border:1px solid var(--gold2);
+  background:var(--gold);color:var(--bg);font-size:22px;cursor:pointer;
+  box-shadow:0 8px 28px #e8b84b44;display:flex;align-items:center;justify-content:center;
+  transition:transform .2s cubic-bezier(.16,1,.3,1),box-shadow .2s ease;touch-action:manipulation;
+}
+#chat-fab:hover{transform:scale(1.08) rotate(-4deg);box-shadow:0 10px 34px #e8b84b66}
+#chat-fab:active{transform:scale(.92)}
+#chat-widget.open #chat-fab{transform:rotate(225deg)}
+#chat-window{
+  position:absolute;bottom:68px;right:0;width:320px;max-width:calc(100vw - 32px);
+  height:440px;max-height:calc(100vh - 160px);
+  background:var(--bg3);border:1px solid var(--parch2);border-radius:var(--rl);
+  display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 20px 60px rgba(0,0,0,.55);
+  transform:scale(.92) translateY(12px);opacity:0;pointer-events:none;
+  transition:transform .25s cubic-bezier(.16,1,.3,1),opacity .2s ease;
+  transform-origin:bottom right;
+}
+#chat-widget.open #chat-window{transform:scale(1) translateY(0);opacity:1;pointer-events:auto}
+.chat-hdr{
+  display:flex;align-items:center;justify-content:space-between;padding:12px 14px;
+  border-bottom:1px solid var(--border);font-family:'Cinzel',serif;font-size:13px;color:var(--gold);
+  background:var(--bg2);flex-shrink:0;
+}
+.chat-close{background:none;border:none;color:var(--textdim);cursor:pointer;font-size:14px;padding:4px;touch-action:manipulation}
+.chat-close:hover{color:var(--text)}
+#chat-messages{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.chat-msg{
+  max-width:84%;padding:9px 12px;border-radius:14px;font-size:13px;line-height:1.45;
+  animation:popIn .25s cubic-bezier(.16,1,.3,1) both;white-space:pre-wrap;word-break:break-word;
+}
+.chat-msg.user{align-self:flex-end;background:var(--gold);color:var(--bg);border-radius:14px 14px 4px 14px}
+.chat-msg.assistant{align-self:flex-start;background:var(--stone);color:var(--text);border:1px solid var(--border);border-radius:14px 14px 14px 4px}
+.chat-msg.typing{opacity:.6;letter-spacing:2px;animation:pulse-node 1.1s infinite}
+.chat-input-row{display:flex;gap:8px;padding:10px;border-top:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.chat-input-row input{
+  flex:1;background:var(--stone);border:1px solid var(--border);border-radius:20px;
+  padding:10px 14px;font-family:'Crimson Pro',serif;font-size:13px;color:var(--text);outline:none;
+  -webkit-appearance:none;
+}
+.chat-input-row input:focus{border-color:var(--parch2)}
+#chat-send-btn{
+  width:38px;height:38px;flex-shrink:0;border-radius:50%;border:1px solid var(--gold2);
+  background:var(--gold);color:var(--bg);cursor:pointer;font-size:14px;
+  transition:transform .15s;touch-action:manipulation;
+}
+#chat-send-btn:active{transform:scale(.9)}
+
+@media(max-width:639px){
+  #chat-window{width:calc(100vw - 32px);height:min(60vh,440px)}
+}
+
+/* ══════════════════════════════════════════
    DESKTOP ENHANCEMENTS (≥ 640px)
 ══════════════════════════════════════════ */
 @media(min-width:640px){
@@ -588,4 +702,13 @@ main{
   .result-actions .btn-primary{text-align:center}
   .result-row{display:contents}
   .ach-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+  .tier-grid{grid-template-columns:repeat(3,1fr);gap:20px}
+  .quest-card{transition:all .2s,transform .25s cubic-bezier(.16,1,.3,1)}
+  .quest-card:hover{transform:translateY(-3px);border-color:var(--parch2);box-shadow:0 14px 32px rgba(0,0,0,.3)}
+  .ach-card{transition:all .2s,transform .2s cubic-bezier(.16,1,.3,1)}
+  .ach-card:hover{transform:translateY(-2px)}
+  #page-upgrade{padding:36px 28px}
+  .bento-grid{grid-template-columns:repeat(4,1fr)}
+  .bento-lg{grid-column:span 4}
+  .bento-md{grid-column:span 2}
 }
